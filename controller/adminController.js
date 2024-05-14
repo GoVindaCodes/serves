@@ -5,6 +5,194 @@ dayjs.extend(utc);
 const jwt = require("jsonwebtoken");
 const { signInToken, tokenForVerify, sendEmail } = require("../config/auth");
 const Admin = require("../models/Admin");
+const { firebaseAdmin } = require('firebase-admin');
+const admin = require('firebase-admin');
+const fetch = require('node-fetch');
+
+// Initialize Firebase Admin SDK
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
+
+const googleLogin = async (req, res) => {
+  try {
+    const { tokenId } = req.body;
+    console.log("Token received:", tokenId);
+    const decodedToken = await admin.auth().verifyIdToken(tokenId);
+    const { name, email } = decodedToken;
+    let adminUser = await Admin.findOne({ email });
+    if (!adminUser) {
+      const nameObject = {
+        en: name,
+      };
+      adminUser = new Admin({
+        name: nameObject,
+        email: email,
+        role: 'Admin',
+      });
+      console.log("New admin object:", adminUser);
+      const savedAdmin = await adminUser.save();
+      console.log("Saved admin:", savedAdmin);
+    } else {
+      console.log("Admin user already exists:", adminUser);
+    }
+
+    // Generate a regular token for both new and existing users
+    const token = signInToken(adminUser);
+    console.log("Generated token:", token);
+    res.send({
+      token,
+      _id: adminUser._id,
+      name: adminUser.name.en,
+      email: adminUser.email,
+      role: adminUser.role,
+      joiningData: Date.now(),
+    });
+  } catch (err) {
+    console.error("Error in Google login:", err);
+    res.status(500).send({
+      message: "An error occurred during Google login.",
+    });
+  }
+};
+
+
+const facebookLogin = async (req, res) => {
+  try {
+    const { accessToken } = req.body;
+    console.log("Access token received:", accessToken);
+
+    // Verify the access token with Facebook
+    const userData = await admin.auth().verifyIdToken(accessToken);
+
+    // Extract user information from the decoded token
+    const { name, email } = userData;
+    console.log("User data:", userData);
+
+    // Check if the user exists in your database
+    let adminUser;
+    if (email) {
+      // If email is provided by Facebook, try to find the user by email
+      adminUser = await Admin.findOne({ email });
+    }
+
+    if (!adminUser) {
+      // If user not found by email or email is not provided, try to find the user by name or create a new user
+      let adminName;
+      if (name) {
+        adminName = name;
+      } else {
+        // Set a default name if name is not provided by Facebook
+        adminName = "Unknown User";
+      }
+
+      adminUser = await Admin.findOne({ name: adminName });
+      if (!adminUser) {
+        // Create a new user if not exists
+        const nameObject = {
+          en: adminName,
+        };
+        function generateDefaultEmail() {
+          const randomString = Math.random().toString(36).substring(7);
+          return `user_${randomString}@example.com`;
+        }
+
+        adminUser = new Admin({
+          name: nameObject,
+          email: generateDefaultEmail(), // Set email to empty string if not provided
+          role: 'Admin',
+        });
+        console.log("New admin object:", adminUser);
+        const savedAdmin = await adminUser.save();
+        console.log("Saved admin:", savedAdmin);
+      } else {
+        console.log("Admin user found by name:", adminUser);
+      }
+    } else {
+      console.log("Admin user found by email:", adminUser);
+    }
+
+    // Generate a regular token for both new and existing users
+    const token = signInToken(adminUser);
+    console.log("Generated token:", token);
+
+    res.send({
+      token,
+      _id: adminUser._id,
+      name: adminUser.name.en,
+      email: adminUser.email,
+      role: adminUser.role,
+      joiningData: Date.now(),
+    });
+  } catch (err) {
+    console.error("Error in Facebook login:", err);
+    res.status(500).send({
+      message: "An error occurred during Facebook login.",
+    });
+  }
+};
+
+
+
+// module.exports = { facebookLogin };
+
+
+
+
+// works completely fines as welll
+// const googleLogin = async (req, res) => {
+//   try {
+//     const { tokenId } = req.body;
+//     console.log("Token received:", tokenId);
+//     const decodedToken = await admin.auth().verifyIdToken(tokenId);
+//     const { name, email } = decodedToken;
+//     let adminUser = await Admin.findOne({ email });
+//     if (!adminUser) {
+//       const nameObject = {
+//         en: name,
+//       };
+//       adminUser = new Admin({
+//         name: nameObject,
+//         email: email,
+//         role: 'Admin',
+//       });
+//       console.log("New admin object:", adminUser);
+//       const savedAdmin = await adminUser.save();
+//       console.log("Saved admin:", savedAdmin);
+
+//       const customToken = await admin.auth().createCustomToken(savedAdmin._id.toString());
+
+//       res.send({
+//         customToken,
+//         _id: savedAdmin._id,
+//         name: savedAdmin.name.en,
+//         email: savedAdmin.email,
+//         role: savedAdmin.role,
+//         joiningData: Date.now(),
+//       });
+//     } else {
+//       console.log("Admin user already exists:", adminUser);
+//       const token = signInToken(adminUser);
+//       console.log("Generated token:", token);
+//       res.send({
+//         token,
+//         _id: adminUser._id,
+//         name: adminUser.name.en,
+//         email: adminUser.email,
+//         role: adminUser.role,
+//         joiningData: Date.now(),
+//       });
+//     }
+//   } catch (err) {
+//     console.error("Error in Google login:", err);
+//     res.status(500).send({
+//       message: "An error occurred during Google login.",
+//     });
+//   }
+// };
+
+
+
 
 // const registerAdmin = async (req, res) => {
 //   try {
@@ -39,6 +227,56 @@ const Admin = require("../models/Admin");
 // };
 
 
+// const registerAdmin = async (req, res) => {
+//   try {
+//     console.log("Request body:", req.body);
+
+//     const isAdded = await Admin.findOne({ email: req.body.email });
+//     console.log("Admin found by email:", isAdded);
+
+//     if (isAdded) {
+//       console.log("Email already added");
+
+//       return res.status(403).send({
+//         message: "This Email already Added!",
+//       });
+//     } else {
+//       console.log("Email is not already added");
+
+//       const newStaff = new Admin({
+//         name: req.body.name,
+//         email: req.body.email,
+//         phone: req.body.phone,
+//         role: req.body.role,
+//         password: bcrypt.hashSync(req.body.password),
+//       });
+
+//       console.log("New admin object:", newStaff);
+
+//       const staff = await newStaff.save();
+//       console.log("Saved admin:", staff);
+
+//       const token = signInToken(staff);
+//       console.log("Generated token:", token);
+
+//       res.send({
+//         token,
+//         _id: staff._id,
+//         name: staff.name,
+//         email: staff.email,
+//         role: staff.role,
+//         joiningData: Date.now(),
+//       });
+//     }
+//   } catch (err) {
+//     console.error("Error in registerAdmin:", err);
+
+//     res.status(500).send({
+//       message: err.message,
+//     });
+//   }
+// };
+
 const registerAdmin = async (req, res) => {
   try {
     console.log("Request body:", req.body);
@@ -55,8 +293,12 @@ const registerAdmin = async (req, res) => {
     } else {
       console.log("Email is not already added");
 
+      const nameObject = {
+        en: req.body.name,
+      };
+
       const newStaff = new Admin({
-        name: req.body.name,
+        name: nameObject,
         email: req.body.email,
         phone: req.body.phone,
         role: req.body.role,
@@ -74,7 +316,7 @@ const registerAdmin = async (req, res) => {
       res.send({
         token,
         _id: staff._id,
-        name: staff.name,
+        name: staff.name.en,
         email: staff.email,
         role: staff.role,
         joiningData: Date.now(),
@@ -88,6 +330,7 @@ const registerAdmin = async (req, res) => {
     });
   }
 };
+
 
 const loginAdmin = async (req, res) => {
   try {
@@ -221,37 +464,25 @@ const forgetPassword = async (req, res) => {
 
 const resetPassword = async (req, res) => {
   const token = req.body.token;
-
-  // Verify the token first
   jwt.verify(token, process.env.JWT_SECRET_FOR_VERIFY, async (err, decoded) => {
     if (err) {
       return res.status(500).send({
         message: "Token expired or invalid, please try again!",
       });
     }
-
-    // Extract email from the decoded token
     const { email } = decoded;
-
     try {
-      // Find the user by email
       const staff = await Admin.findOne({ email });
-
       if (!staff) {
         return res.status(404).send({
           message: "User not found!",
         });
       }
-
-      // Update the user's password
       staff.password = bcrypt.hashSync(req.body.newPassword);
       await staff.save();
-
-      // Send success response
       res.send({
         message: "Your password has been changed successfully. You can now log in with your new password!",
       });
-
     } catch (error) {
       console.error("Error resetting password:", error);
       res.status(500).send({
@@ -363,22 +594,24 @@ const getStaffById = async (req, res) => {
 };
 
 const updateStaff = async (req, res) => {
+  console.log("staffs Datas", req.body)
   try {
     const admin = await Admin.findOne({ _id: req.params.id });
-
+    console.log("admin:", admin)
     if (admin) {
       admin.name = { ...admin.name, ...req.body.name };
       admin.email = req.body.email;
       admin.phone = req.body.phone;
       admin.role = req.body.role;
       admin.joiningData = req.body.joiningDate;
-      // admin.password =
-      //   req.body.password !== undefined
-      //     ? bcrypt.hashSync(req.body.password)
-      //     : admin.password;
+      admin.password =
+        req.body.password !== undefined
+          ? bcrypt.hashSync(req.body.password)
+          : admin.password;
 
       admin.image = req.body.image;
       const updatedAdmin = await admin.save();
+      console.log("updated Admins", updatedAdmin)
       const token = signInToken(updatedAdmin);
       res.send({
         token,
@@ -449,4 +682,6 @@ module.exports = {
   updateStaff,
   deleteStaff,
   updatedStatus,
+  googleLogin,
+  facebookLogin,
 };
