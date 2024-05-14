@@ -11,8 +11,6 @@ const {
   updateStaff,
   deleteStaff,
   updatedStatus,
-  googleLogin,
-  facebookLogin,
 } = require("../controller/adminController");
 const { passwordVerificationLimit } = require("../lib/email-sender/sender");
 
@@ -47,10 +45,5 @@ router.put("/update-status/:id", updatedStatus);
 
 //delete a staff
 router.delete("/:id", deleteStaff);
-
-router.post("/google-login", googleLogin);
-
-router.post("/facebook-login", facebookLogin);
-
 
 module.exports = router;
